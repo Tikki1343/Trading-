@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Trade Journal</title> 
-<link rel="icon" type="image/svg+xml" href="data:image/
+<title>Trade Journal ― SL比較トレード日誌</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+CiAgPGRlZnM+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImciIHgxPSIwIiB5MT0iMCIgeDI9IjEiIHkyPSIxIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjNUVDOEYyIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iMSIgc3RvcC1jb2xvcj0iI0YyQTY1RSIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICA8L2RlZnM+CiAgPHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByeD0iMTQiIGZpbGw9InVybCgjZykiLz4KICA8dGV4dCB4PSIzMiIgeT0iNDEiIGZvbnQtZmFtaWx5PSJBcmlhbCwgc2Fucy1zZXJpZiIgZm9udC13ZWlnaHQ9IjcwMCIgZm9udC1zaXplPSIyNCIgZmlsbD0iIzBGMTIxOSIgdGV4dC1hbmNob3I9Im1pZGRsZSI+U0w8L3RleHQ+Cjwvc3ZnPgo=">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
@@ -635,11 +635,14 @@ function computeAccountStats(accId){
   const grossLoss = Math.abs(rVals.filter(r=>r<0).reduce((a,b)=>a+b,0));
   const pf = grossLoss>0 ? grossWin/grossLoss : (grossWin>0 ? Infinity : 0);
   const winRate = total>0 ? wins/total*100 : 0;
+  const pnlVals = rows.filter(r=>r.pnl!=null).map(r=>r.pnl);
+  const totalPnl = pnlVals.reduce((a,b)=>a+b,0);
+  const hasPnl = pnlVals.length > 0;
   // sorted cumulative curve
   const sorted = [...rows].sort((a,b)=>a.date.localeCompare(b.date));
   let cum = 0;
   const curve = sorted.map(r=>{ cum += (r.r||0); return cum; });
-  return {total, wins, losses, winRate, totalR, avgR, pf, curve};
+  return {total, wins, losses, winRate, totalR, avgR, pf, totalPnl, hasPnl, curve};
 }
 
 function renderStats(){
@@ -657,6 +660,7 @@ function renderStats(){
       <div class="stat-row"><span class="k">トレード数</span><span class="v">${s.total}</span></div>
       <div class="stat-row"><span class="k">勝率</span><span class="v ${s.winRate>=50?'pos':'neg'}">${s.winRate.toFixed(1)}%</span></div>
       <div class="stat-row"><span class="k">合計R</span><span class="v ${s.totalR>0?'pos':s.totalR<0?'neg':''}">${s.totalR>0?'+':''}${s.totalR.toFixed(2)}R</span></div>
+      <div class="stat-row"><span class="k">合計損益</span><span class="v ${s.totalPnl>0?'pos':s.totalPnl<0?'neg':''}">${s.hasPnl ? (s.totalPnl>0?'+':'')+s.totalPnl.toLocaleString() : '—'}</span></div>
       <div class="stat-row"><span class="k">平均R</span><span class="v ${s.avgR>0?'pos':s.avgR<0?'neg':''}">${s.avgR>0?'+':''}${s.avgR.toFixed(2)}R</span></div>
       <div class="stat-row"><span class="k">プロフィットファクター</span><span class="v">${s.pf===Infinity?'∞':s.pf.toFixed(2)}</span></div>
     `;
@@ -721,33 +725,36 @@ function renderWinRateChart(statsByAcc){
   svg.innerHTML = '';
   const W=1000,H=180,PAD=30;
   const barH = 34, gap = 20;
+  const trackX = 150, trackW = W-150-110; // leave room on the right for the label, outside the bar
   let y = 20;
   accounts.forEach(a=>{
     const s = statsByAcc[a.id];
-    const barW = Math.max(0, (s.winRate/100) * (W-160));
+    const barW = Math.max(0, (s.winRate/100) * trackW);
     const g = document.createElementNS('http://www.w3.org/2000/svg','g');
 
     const label = document.createElementNS('http://www.w3.org/2000/svg','text');
     label.setAttribute('x', 0); label.setAttribute('y', y+barH/2+5);
-    label.setAttribute('fill','#8A91A6'); label.setAttribute('font-size','13');
+    label.setAttribute('fill','#C7CCDA'); label.setAttribute('font-size','13'); label.setAttribute('font-weight','600');
     label.textContent = a.name;
     g.appendChild(label);
 
     const track = document.createElementNS('http://www.w3.org/2000/svg','rect');
-    track.setAttribute('x',150); track.setAttribute('y', y);
-    track.setAttribute('width', W-160-30); track.setAttribute('height', barH);
-    track.setAttribute('rx', 6); track.setAttribute('fill','#1E2330');
+    track.setAttribute('x',trackX); track.setAttribute('y', y);
+    track.setAttribute('width', trackW); track.setAttribute('height', barH);
+    track.setAttribute('rx', 6); track.setAttribute('fill','#12151F'); track.setAttribute('stroke','#2B3140'); track.setAttribute('stroke-width','1');
     g.appendChild(track);
 
-    const bar = document.createElementNS('http://www.w3.org/2000/svg','rect');
-    bar.setAttribute('x',150); bar.setAttribute('y', y);
-    bar.setAttribute('width', barW); bar.setAttribute('height', barH);
-    bar.setAttribute('rx', 6); bar.setAttribute('fill', a.color);
-    g.appendChild(bar);
+    if(barW > 0){
+      const bar = document.createElementNS('http://www.w3.org/2000/svg','rect');
+      bar.setAttribute('x',trackX); bar.setAttribute('y', y);
+      bar.setAttribute('width', barW); bar.setAttribute('height', barH);
+      bar.setAttribute('rx', 6); bar.setAttribute('fill', a.color);
+      g.appendChild(bar);
+    }
 
     const pct = document.createElementNS('http://www.w3.org/2000/svg','text');
-    pct.setAttribute('x', 160+ (W-160-30)); pct.setAttribute('y', y+barH/2+5);
-    pct.setAttribute('fill','#E8EAF1'); pct.setAttribute('font-size','13'); pct.setAttribute('text-anchor','end');
+    pct.setAttribute('x', trackX + trackW + 14); pct.setAttribute('y', y+barH/2+5);
+    pct.setAttribute('fill','#E8EAF1'); pct.setAttribute('font-size','14'); pct.setAttribute('font-weight','700'); pct.setAttribute('font-family','var(--font-m)'); pct.setAttribute('text-anchor','start');
     pct.textContent = s.winRate.toFixed(1)+'% ('+s.wins+'/'+s.total+')';
     g.appendChild(pct);
 
