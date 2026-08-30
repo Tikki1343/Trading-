@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Trade Journal</title>
+<title>Trade Journal ― SL比較トレード日誌</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCI+CiAgPGRlZnM+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9ImciIHgxPSIwIiB5MT0iMCIgeDI9IjEiIHkyPSIxIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjNUVDOEYyIi8+CiAgICAgIDxzdG9wIG9mZnNldD0iMSIgc3RvcC1jb2xvcj0iI0YyQTY1RSIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICA8L2RlZnM+CiAgPHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByeD0iMTQiIGZpbGw9InVybCgjZykiLz4KICA8dGV4dCB4PSIzMiIgeT0iNDEiIGZvbnQtZmFtaWx5PSJBcmlhbCwgc2Fucy1zZXJpZiIgZm9udC13ZWlnaHQ9IjcwMCIgZm9udC1zaXplPSIyNCIgZmlsbD0iIzBGMTIxOSIgdGV4dC1hbmNob3I9Im1pZGRsZSI+U0w8L3RleHQ+Cjwvc3ZnPgo=">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Zen+Kaku+Gothic+New:wght@400;500;700;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
@@ -150,6 +150,10 @@
   .v.pos{color:var(--win);} .v.neg{color:var(--loss);}
 
   .chart-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:16px;}
+  .bal-controls{display:flex;gap:18px;flex-wrap:wrap;margin-bottom:12px;}
+  .bal-field{max-width:220px;}
+  .bal-field label{margin-bottom:4px;}
+  .bal-field input{font-size:13px;padding:7px 10px;}
   .chart-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;}
   .chart-head h3{margin:0;font-size:14px;}
   .legend{display:flex;gap:14px;font-size:11.5px;color:var(--text-dim);}
@@ -266,6 +270,19 @@
 
     <div class="chart-card">
       <div class="chart-head">
+        <h3>口座残高推移</h3>
+        <div class="legend" id="bal-legend"></div>
+      </div>
+      <div class="bal-controls">
+        <div class="bal-field"><label>開始残高（プロップ50k想定）</label><input type="number" id="bal-start" value="50000" step="1000"></div>
+        <div class="bal-field"><label>1トレードのリスク%（R入力時の換算用）</label><input type="number" id="bal-risk" value="1" step="0.1"></div>
+      </div>
+      <div class="tags" id="bal-acc-picker" style="margin-bottom:12px;"></div>
+      <svg id="bal-svg" width="100%" height="280" viewBox="0 0 1000 280" preserveAspectRatio="none"></svg>
+    </div>
+
+    <div class="chart-card">
+      <div class="chart-head">
         <h3>累積R推移（エクイティカーブ）</h3>
         <div class="legend" id="curve-legend"></div>
       </div>
@@ -317,6 +334,7 @@ if(!accounts){
   save('tj_accounts', accounts);
 }
 let trades = load('tj_trades', []);
+let balSelectedAccounts = new Set(accounts.map(a=>a.id));
 
 let selectedDir = 'long';
 let selectedRecordType = 'compare';
@@ -667,8 +685,113 @@ function renderStats(){
     grid.appendChild(card);
   });
 
+  renderBalanceControls();
+  renderBalanceChart();
   renderCurveChart(statsByAcc);
   renderWinRateChart(statsByAcc);
+}
+
+/* ---- Account balance ($) comparison chart ---- */
+function renderBalanceControls(){
+  const picker = document.getElementById('bal-acc-picker');
+  picker.innerHTML = '';
+  accounts.forEach(acc=>{
+    const on = balSelectedAccounts.has(acc.id);
+    const chip = document.createElement('div');
+    chip.className = 'tag-chip' + (on ? ' on' : '');
+    chip.style.borderColor = acc.color;
+    if(on){ chip.style.background = acc.color + '26'; chip.style.color = acc.color; }
+    chip.textContent = acc.name;
+    chip.addEventListener('click', ()=>{
+      if(balSelectedAccounts.has(acc.id)) balSelectedAccounts.delete(acc.id);
+      else balSelectedAccounts.add(acc.id);
+      renderBalanceControls();
+      renderBalanceChart();
+    });
+    picker.appendChild(chip);
+  });
+}
+
+function renderBalanceChart(){
+  const startBal = parseFloat(document.getElementById('bal-start').value) || 50000;
+  const riskPct = parseFloat(document.getElementById('bal-risk').value) || 1;
+  const riskAmt = startBal * (riskPct / 100);
+
+  const svg = document.getElementById('bal-svg');
+  svg.innerHTML = '';
+  const legend = document.getElementById('bal-legend');
+  const selectedAccs = accounts.filter(a => balSelectedAccounts.has(a.id));
+  legend.innerHTML = selectedAccs.map(a=>`<span><span class="dot" style="background:${a.color}"></span>${escapeHtml(a.name)}</span>`).join('');
+
+  const W=1000, H=280, PAD=44;
+
+  const curves = {};
+  selectedAccs.forEach(acc=>{
+    const rows = trades.filter(t=>t.results[acc.id]).map(t=>({date:t.date, ...t.results[acc.id]}));
+    const sorted = [...rows].sort((a,b)=>a.date.localeCompare(b.date));
+    let bal = startBal;
+    const pts = [bal];
+    sorted.forEach(r=>{
+      let delta = 0;
+      if(r.pnl != null) delta = r.pnl;
+      else if(r.r != null) delta = r.r * riskAmt;
+      bal += delta;
+      pts.push(bal);
+    });
+    curves[acc.id] = pts;
+  });
+
+  if(selectedAccs.length === 0){
+    const t = document.createElementNS('http://www.w3.org/2000/svg','text');
+    t.setAttribute('x', W/2); t.setAttribute('y', H/2);
+    t.setAttribute('fill','#565D70'); t.setAttribute('text-anchor','middle'); t.setAttribute('font-size','14');
+    t.textContent = '口座を選択してください';
+    svg.appendChild(t);
+    return;
+  }
+
+  let allVals = [startBal];
+  Object.values(curves).forEach(pts=>pts.forEach(v=>allVals.push(v)));
+  const maxV = Math.max(...allVals), minV = Math.min(...allVals);
+  const range = (maxV - minV) || (startBal * 0.1) || 1;
+  const yMax = maxV + range*0.12, yMin = minV - range*0.12;
+  const yFor = v => H-PAD - ((v-yMin)/((yMax-yMin)||1))*(H-PAD*2);
+
+  const baseY = yFor(startBal);
+  const baseLine = document.createElementNS('http://www.w3.org/2000/svg','line');
+  baseLine.setAttribute('x1', PAD); baseLine.setAttribute('x2', W-8);
+  baseLine.setAttribute('y1', baseY); baseLine.setAttribute('y2', baseY);
+  baseLine.setAttribute('stroke', '#2B3140'); baseLine.setAttribute('stroke-dasharray','4,4');
+  svg.appendChild(baseLine);
+
+  const baseLabel = document.createElementNS('http://www.w3.org/2000/svg','text');
+  baseLabel.setAttribute('x', PAD); baseLabel.setAttribute('y', baseY - 8);
+  baseLabel.setAttribute('fill', '#565D70'); baseLabel.setAttribute('font-size', '11');
+  baseLabel.textContent = '開始 $' + startBal.toLocaleString();
+  svg.appendChild(baseLabel);
+
+  selectedAccs.forEach(acc=>{
+    const pts = curves[acc.id];
+    const n = pts.length;
+    const xStep = n>1 ? (W-PAD-10)/(n-1) : 0;
+    let d = `M ${PAD} ${yFor(pts[0])} `;
+    pts.forEach((v,i)=>{ d += `L ${PAD + i*xStep} ${yFor(v)} `; });
+    const path = document.createElementNS('http://www.w3.org/2000/svg','path');
+    path.setAttribute('d', d);
+    path.setAttribute('fill','none');
+    path.setAttribute('stroke', acc.color);
+    path.setAttribute('stroke-width','2.5');
+    path.setAttribute('stroke-linejoin','round');
+    svg.appendChild(path);
+
+    const lastV = pts[pts.length-1];
+    const endLabel = document.createElementNS('http://www.w3.org/2000/svg','text');
+    endLabel.setAttribute('x', Math.min(PAD+(n-1)*xStep, W-6)); endLabel.setAttribute('y', Math.max(14, yFor(lastV)-8));
+    endLabel.setAttribute('fill', acc.color); endLabel.setAttribute('font-size','12'); endLabel.setAttribute('font-weight','700');
+    endLabel.setAttribute('text-anchor','end'); endLabel.setAttribute('font-family','var(--font-m)');
+    endLabel.textContent = '$' + Math.round(lastV).toLocaleString();
+    svg.appendChild(endLabel);
+  });
 }
 
 function renderCurveChart(statsByAcc){
@@ -810,7 +933,9 @@ document.getElementById('btn-add-acc').addEventListener('click', ()=>{
   const name = prompt('新しい口座名を入力してください', '新規口座');
   if(!name) return;
   const color = PALETTE[accounts.length % PALETTE.length];
-  accounts.push({id:'acc_'+Date.now(), name: name.trim(), note:'', color});
+  const newAcc = {id:'acc_'+Date.now(), name: name.trim(), note:'', color};
+  accounts.push(newAcc);
+  balSelectedAccounts.add(newAcc.id);
   save('tj_accounts', accounts);
   renderAccountsTab();
   renderAccResultBlocks();
@@ -835,7 +960,7 @@ document.getElementById('import-file').addEventListener('change', (e)=>{
     try{
       const data = JSON.parse(reader.result);
       if(!confirm('現在のデータを上書きしてインポートしますか？')) return;
-      if(data.accounts) { accounts = data.accounts; save('tj_accounts', accounts); }
+      if(data.accounts) { accounts = data.accounts; save('tj_accounts', accounts); balSelectedAccounts = new Set(accounts.map(a=>a.id)); }
       if(data.trades) { trades = data.trades; save('tj_trades', trades); }
       renderAccountsTab();
       renderAccResultBlocks();
@@ -860,6 +985,8 @@ document.getElementById('lightbox').addEventListener('click', ()=>{
 });
 
 /* ==================== Init ==================== */
+document.getElementById('bal-start').addEventListener('input', renderBalanceChart);
+document.getElementById('bal-risk').addEventListener('input', renderBalanceChart);
 initEntryForm();
 </script>
 </body>
