@@ -154,6 +154,28 @@
   .bal-field{max-width:220px;}
   .bal-field label{margin-bottom:4px;}
   .bal-field input{font-size:13px;padding:7px 10px;}
+
+  .cal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;}
+  .cal-nav-btn{background:var(--surface-2);border:1px solid var(--border);color:var(--text-dim);width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:17px;line-height:1;}
+  .cal-nav-btn:hover{color:var(--text);border-color:var(--acc-a);}
+  .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;}
+  .cal-weekday{text-align:center;font-size:10.5px;color:var(--text-faint);font-weight:700;padding:2px 0 6px;}
+  .cal-cell{min-height:64px;border-radius:8px;background:var(--surface-2);border:1px solid var(--border);padding:5px 6px;font-size:10.5px;overflow:hidden;}
+  .cal-blank{background:transparent;border:none;}
+  .cal-day-num{font-weight:700;color:var(--text-faint);margin-bottom:2px;font-family:var(--font-m);font-size:11px;}
+  .cal-pnl{font-family:var(--font-m);font-weight:700;font-size:12px;line-height:1.3;}
+  .cal-r{font-family:var(--font-m);font-size:10px;color:var(--text-dim);line-height:1.3;}
+  .cal-wl{font-size:9.5px;color:var(--text-faint);margin-top:2px;line-height:1.3;}
+  .cal-pos{background:rgba(62,217,160,0.10);border-color:rgba(62,217,160,0.3);}
+  .cal-pos .cal-day-num{color:var(--win);}
+  .cal-pos .cal-pnl{color:var(--win);}
+  .cal-neg{background:rgba(255,107,122,0.10);border-color:rgba(255,107,122,0.3);}
+  .cal-neg .cal-day-num{color:var(--loss);}
+  .cal-neg .cal-pnl{color:var(--loss);}
+  @media(max-width:520px){
+    .cal-cell{min-height:52px;padding:4px;font-size:9px;}
+    .cal-pnl{font-size:10px;}
+  }
   .chart-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;}
   .chart-head h3{margin:0;font-size:14px;}
   .legend{display:flex;gap:14px;font-size:11.5px;color:var(--text-dim);}
@@ -246,7 +268,9 @@
       <div id="acc-results"></div>
       <div id="practice-result" style="display:none;"></div>
 
-      <div style="display:flex;gap:10px;margin-top:6px;">
+      <div id="edit-banner" style="display:none;background:rgba(242,196,110,0.12);border:1px solid rgba(242,196,110,0.35);color:var(--be);padding:10px 14px;border-radius:8px;font-size:12.5px;margin-top:16px;">✏️ この記録を編集中です。保存すると上書きされます。</div>
+
+      <div style="display:flex;gap:10px;margin-top:14px;">
         <button class="btn btn-primary" id="btn-save-trade">この記録を保存</button>
         <button class="btn btn-ghost" id="btn-clear-form">クリア</button>
       </div>
@@ -279,6 +303,15 @@
       </div>
       <div class="tags" id="bal-acc-picker" style="margin-bottom:12px;"></div>
       <svg id="bal-svg" width="100%" height="280" viewBox="0 0 1000 280" preserveAspectRatio="none"></svg>
+    </div>
+
+    <div class="chart-card">
+      <div class="cal-header">
+        <button class="cal-nav-btn" id="cal-prev">‹</button>
+        <h3 id="cal-month-label" style="margin:0;font-size:14px;"></h3>
+        <button class="cal-nav-btn" id="cal-next">›</button>
+      </div>
+      <div class="cal-grid" id="cal-grid"></div>
     </div>
 
     <div class="chart-card">
@@ -335,6 +368,7 @@ if(!accounts){
 }
 let trades = load('tj_trades', []);
 let balSelectedAccounts = new Set(accounts.map(a=>a.id));
+let calMonth = new Date();
 
 let selectedDir = 'long';
 let selectedRecordType = 'compare';
@@ -499,12 +533,71 @@ function renderPracticeResultBlock(){
   `;
 }
 
+let editingTradeId = null;
+
+function exitEditMode(){
+  editingTradeId = null;
+  document.getElementById('edit-banner').style.display = 'none';
+  document.getElementById('btn-save-trade').textContent = 'この記録を保存';
+  document.getElementById('btn-clear-form').textContent = 'クリア';
+}
+
+function enterEditMode(trade){
+  editingTradeId = trade.id;
+  document.getElementById('edit-banner').style.display = '';
+  document.getElementById('btn-save-trade').textContent = '更新を保存';
+  document.getElementById('btn-clear-form').textContent = 'キャンセル';
+
+  document.getElementById('f-date').value = trade.date;
+  document.getElementById('f-rationale').value = trade.rationale || '';
+  stagedImages = [...(trade.images||[])];
+  renderImgPreview();
+
+  document.querySelector(`.dir-btn[data-dir="${trade.direction}"]`).click();
+  const rType = trade.recordType || 'compare';
+  document.querySelector(`.type-btn[data-type="${rType}"]`).click();
+
+  if(rType === 'compare'){
+    renderAccResultBlocks();
+    document.querySelectorAll('#acc-results .acc-block').forEach(block=>{
+      const accId = block.dataset.accId;
+      const r = trade.results[accId];
+      const toggle = block.querySelector('[data-role="toggle"]');
+      if(r){
+        if(!toggle.classList.contains('on')) toggle.click();
+        block.querySelector('[data-role="sltype"]').value = r.slType || 'breakeven';
+        block.querySelector('[data-role="result"]').value = r.result;
+        block.querySelector('[data-role="r"]').value = r.r ?? '';
+        block.querySelector('[data-role="pnl"]').value = r.pnl ?? '';
+        block.querySelector('[data-role="memo"]').value = r.memo || '';
+      } else {
+        if(toggle.classList.contains('on')) toggle.click();
+      }
+    });
+  } else {
+    renderPracticeResultBlock();
+    const accId = Object.keys(trade.results)[0];
+    const r = accId ? trade.results[accId] : null;
+    if(accId) document.getElementById('pr-account').value = accId;
+    if(r){
+      document.getElementById('pr-result').value = r.result;
+      document.getElementById('pr-r').value = r.r ?? '';
+      document.getElementById('pr-pnl').value = r.pnl ?? '';
+      document.getElementById('pr-memo').value = r.memo || '';
+    }
+  }
+
+  document.querySelector('.tab-btn[data-view="entry"]').click();
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+
 document.getElementById('btn-clear-form').addEventListener('click', ()=>{
   document.getElementById('f-rationale').value='';
   stagedImages = [];
   renderImgPreview();
   renderAccResultBlocks();
   renderPracticeResultBlock();
+  exitEditMode();
 });
 
 document.getElementById('btn-save-trade').addEventListener('click', ()=>{
@@ -541,20 +634,38 @@ document.getElementById('btn-save-trade').addEventListener('click', ()=>{
     };
   }
 
-  const trade = {
-    id: 't_' + Date.now(),
-    date,
-    recordType: selectedRecordType,
-    direction: selectedDir,
-    rationale,
-    images: [...stagedImages],
-    results
-  };
-  trades.push(trade);
+  const wasEditing = !!editingTradeId;
+
+  if(wasEditing){
+    const idx = trades.findIndex(x=>x.id===editingTradeId);
+    if(idx > -1){
+      trades[idx] = {
+        ...trades[idx],
+        date,
+        recordType: selectedRecordType,
+        direction: selectedDir,
+        rationale,
+        images: [...stagedImages],
+        results
+      };
+    }
+  } else {
+    trades.push({
+      id: 't_' + Date.now(),
+      date,
+      recordType: selectedRecordType,
+      direction: selectedDir,
+      rationale,
+      images: [...stagedImages],
+      results
+    });
+  }
+
   save('tj_trades', trades);
   document.getElementById('btn-clear-form').click();
-  alert('記録を保存しました。');
+  alert(wasEditing ? '記録を更新しました。' : '記録を保存しました。');
 });
+
 
 /* ==================== History ==================== */
 function populateAccountFilter(){
@@ -617,12 +728,17 @@ function renderHistory(){
           </tbody>
         </table>
         <div class="trade-actions">
+          <button class="btn btn-ghost btn-sm" data-edit="${t.id}">編集</button>
           <button class="btn btn-danger btn-sm" data-del="${t.id}">削除</button>
         </div>
       </div>
     `;
     card.querySelector('.trade-head').addEventListener('click', ()=>{
       card.querySelector('.trade-body').classList.toggle('open');
+    });
+    card.querySelector('[data-edit]').addEventListener('click', (e)=>{
+      e.stopPropagation();
+      enterEditMode(t);
     });
     card.querySelector('[data-del]').addEventListener('click', (e)=>{
       e.stopPropagation();
@@ -687,6 +803,7 @@ function renderStats(){
 
   renderBalanceControls();
   renderBalanceChart();
+  renderCalendar();
   renderCurveChart(statsByAcc);
   renderWinRateChart(statsByAcc);
 }
@@ -707,6 +824,7 @@ function renderBalanceControls(){
       else balSelectedAccounts.add(acc.id);
       renderBalanceControls();
       renderBalanceChart();
+      renderCalendar();
     });
     picker.appendChild(chip);
   });
@@ -766,9 +884,21 @@ function renderBalanceChart(){
 
   const baseLabel = document.createElementNS('http://www.w3.org/2000/svg','text');
   baseLabel.setAttribute('x', PAD); baseLabel.setAttribute('y', baseY - 8);
-  baseLabel.setAttribute('fill', '#565D70'); baseLabel.setAttribute('font-size', '11');
+  baseLabel.setAttribute('fill', '#565D70'); baseLabel.setAttribute('font-size', '11'); baseLabel.setAttribute('font-family','var(--font-m)');
   baseLabel.textContent = '開始 $' + startBal.toLocaleString();
   svg.appendChild(baseLabel);
+
+  const maxLabel = document.createElementNS('http://www.w3.org/2000/svg','text');
+  maxLabel.setAttribute('x', PAD); maxLabel.setAttribute('y', yFor(maxV) - 8 < 12 ? 12 : yFor(maxV) - 8);
+  maxLabel.setAttribute('fill', '#565D70'); maxLabel.setAttribute('font-size', '11'); maxLabel.setAttribute('font-family','var(--font-m)');
+  maxLabel.textContent = '最大 $' + Math.round(maxV).toLocaleString();
+  svg.appendChild(maxLabel);
+
+  const minLabel = document.createElementNS('http://www.w3.org/2000/svg','text');
+  minLabel.setAttribute('x', PAD); minLabel.setAttribute('y', Math.min(yFor(minV) + 16, H-6));
+  minLabel.setAttribute('fill', '#565D70'); minLabel.setAttribute('font-size', '11'); minLabel.setAttribute('font-family','var(--font-m)');
+  minLabel.textContent = '最小 $' + Math.round(minV).toLocaleString();
+  svg.appendChild(minLabel);
 
   selectedAccs.forEach(acc=>{
     const pts = curves[acc.id];
@@ -794,27 +924,115 @@ function renderBalanceChart(){
   });
 }
 
+/* ---- Daily calendar: $ pnl, win/loss, R per day ---- */
+function renderCalendar(){
+  const label = document.getElementById('cal-month-label');
+  const grid = document.getElementById('cal-grid');
+  const year = calMonth.getFullYear(), month = calMonth.getMonth();
+  label.textContent = `${year}年${month+1}月`;
+
+  const selectedIds = balSelectedAccounts;
+  const dayData = {};
+  trades.forEach(t=>{
+    Object.entries(t.results).forEach(([accId, r])=>{
+      if(!selectedIds.has(accId)) return;
+      if(!dayData[t.date]) dayData[t.date] = {pnl:0, r:0, win:0, lose:0, be:0, hasPnl:false, hasR:false};
+      const d = dayData[t.date];
+      if(r.pnl != null){ d.pnl += r.pnl; d.hasPnl = true; }
+      if(r.r != null){ d.r += r.r; d.hasR = true; }
+      if(r.result === 'win') d.win++;
+      else if(r.result === 'lose') d.lose++;
+      else d.be++;
+    });
+  });
+
+  const firstDay = new Date(year, month, 1);
+  const startWeekday = firstDay.getDay();
+  const daysInMonth = new Date(year, month+1, 0).getDate();
+
+  grid.innerHTML = '';
+  ['日','月','火','水','木','金','土'].forEach(w=>{
+    const cell = document.createElement('div');
+    cell.className = 'cal-weekday';
+    cell.textContent = w;
+    grid.appendChild(cell);
+  });
+  for(let i=0;i<startWeekday;i++){
+    const blank = document.createElement('div');
+    blank.className = 'cal-cell cal-blank';
+    grid.appendChild(blank);
+  }
+  for(let day=1; day<=daysInMonth; day++){
+    const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+    const d = dayData[dateStr];
+    let cls = 'cal-cell';
+    if(d){
+      const net = d.hasPnl ? d.pnl : d.r;
+      if(net > 0) cls += ' cal-pos';
+      else if(net < 0) cls += ' cal-neg';
+    }
+    const cell = document.createElement('div');
+    cell.className = cls;
+    let inner = `<div class="cal-day-num">${day}</div>`;
+    if(d){
+      if(d.hasPnl) inner += `<div class="cal-pnl">${d.pnl>0?'+':''}${Math.round(d.pnl).toLocaleString()}</div>`;
+      if(d.hasR) inner += `<div class="cal-r">${d.r>0?'+':''}${d.r.toFixed(1)}R</div>`;
+      const wlParts = [];
+      if(d.win) wlParts.push(d.win+'勝');
+      if(d.lose) wlParts.push(d.lose+'敗');
+      if(d.be) wlParts.push(d.be+'分');
+      inner += `<div class="cal-wl">${wlParts.join('')}</div>`;
+    }
+    cell.innerHTML = inner;
+    grid.appendChild(cell);
+  }
+}
+
+document.getElementById('cal-prev').addEventListener('click', ()=>{
+  calMonth = new Date(calMonth.getFullYear(), calMonth.getMonth()-1, 1);
+  renderCalendar();
+});
+document.getElementById('cal-next').addEventListener('click', ()=>{
+  calMonth = new Date(calMonth.getFullYear(), calMonth.getMonth()+1, 1);
+  renderCalendar();
+});
+
 function renderCurveChart(statsByAcc){
   const svg = document.getElementById('curve-svg');
   const legend = document.getElementById('curve-legend');
   svg.innerHTML = '';
   legend.innerHTML = accounts.map(a=>`<span><span class="dot" style="background:${a.color}"></span>${escapeHtml(a.name)}</span>`).join('');
 
-  const W=1000,H=280,PAD=30;
+  const W=1000,H=280,PAD=34;
   let allVals = [0];
   accounts.forEach(a=>{ statsByAcc[a.id].curve.forEach(v=>allVals.push(v)); });
   const maxV = Math.max(...allVals, 1);
   const minV = Math.min(...allVals, -1);
   const range = (maxV-minV) || 1;
+  const padRange = range * 0.12;
+  const yTop = maxV + padRange, yBottom = minV - padRange;
 
-  const yFor = v => H-PAD - ((v-minV)/range)*(H-PAD*2);
+  const yFor = v => H-PAD - ((v-yBottom)/((yTop-yBottom)||1))*(H-PAD*2);
   const zeroY = yFor(0);
   // zero line
   const zeroLine = document.createElementNS('http://www.w3.org/2000/svg','line');
-  zeroLine.setAttribute('x1',PAD); zeroLine.setAttribute('x2',W-PAD);
+  zeroLine.setAttribute('x1',PAD); zeroLine.setAttribute('x2',W-8);
   zeroLine.setAttribute('y1',zeroY); zeroLine.setAttribute('y2',zeroY);
   zeroLine.setAttribute('stroke','#2B3140'); zeroLine.setAttribute('stroke-dasharray','4,4');
   svg.appendChild(zeroLine);
+
+  // min/max reference labels so the scale of the differences is clear
+  const maxLabel = document.createElementNS('http://www.w3.org/2000/svg','text');
+  maxLabel.setAttribute('x', PAD); maxLabel.setAttribute('y', yFor(maxV) - 8 < 12 ? 12 : yFor(maxV) - 8);
+  maxLabel.setAttribute('fill','#565D70'); maxLabel.setAttribute('font-size','11'); maxLabel.setAttribute('font-family','var(--font-m)');
+  maxLabel.textContent = '最大 ' + (maxV>0?'+':'') + maxV.toFixed(2) + 'R';
+  svg.appendChild(maxLabel);
+
+  const minLabel = document.createElementNS('http://www.w3.org/2000/svg','text');
+  minLabel.setAttribute('x', PAD); minLabel.setAttribute('y', Math.min(yFor(minV) + 16, H-6));
+  minLabel.setAttribute('fill','#565D70'); minLabel.setAttribute('font-size','11'); minLabel.setAttribute('font-family','var(--font-m)');
+  minLabel.textContent = '最小 ' + (minV>0?'+':'') + minV.toFixed(2) + 'R';
+  svg.appendChild(minLabel);
 
   let hasAny = false;
   accounts.forEach(a=>{
@@ -822,7 +1040,7 @@ function renderCurveChart(statsByAcc){
     if(curve.length===0) return;
     hasAny = true;
     const n = curve.length;
-    const xStep = n>1 ? (W-PAD*2)/(n-1) : 0;
+    const xStep = n>1 ? (W-PAD-10)/(n-1) : 0;
     let d = `M ${PAD} ${yFor(0)} `;
     curve.forEach((v,i)=>{ d += `L ${PAD + i*xStep} ${yFor(v)} `; });
     const path = document.createElementNS('http://www.w3.org/2000/svg','path');
@@ -832,6 +1050,14 @@ function renderCurveChart(statsByAcc){
     path.setAttribute('stroke-width','2.5');
     path.setAttribute('stroke-linejoin','round');
     svg.appendChild(path);
+
+    const lastV = curve[curve.length-1];
+    const endLabel = document.createElementNS('http://www.w3.org/2000/svg','text');
+    endLabel.setAttribute('x', Math.min(PAD+(n-1)*xStep, W-6)); endLabel.setAttribute('y', Math.max(14, yFor(lastV)-8));
+    endLabel.setAttribute('fill', a.color); endLabel.setAttribute('font-size','12'); endLabel.setAttribute('font-weight','700');
+    endLabel.setAttribute('text-anchor','end'); endLabel.setAttribute('font-family','var(--font-m)');
+    endLabel.textContent = (lastV>0?'+':'') + lastV.toFixed(2) + 'R';
+    svg.appendChild(endLabel);
   });
 
   if(!hasAny){
