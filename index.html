@@ -244,6 +244,7 @@
           画像を選択
           <input type="file" id="f-images" accept="image/*" multiple>
         </label>
+        <span id="img-upload-status" style="font-size:11.5px;color:var(--text-dim);margin-left:8px;"></span>
         <div class="img-preview" id="img-preview"></div>
       </div>
 
@@ -435,13 +436,14 @@ document.querySelectorAll('.tab-btn').forEach(btn=>{
 });
 
 /* ==================== Entry form ==================== */
-function fileToDataUrl(file){
-  return new Promise((resolve, reject)=>{
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
+async function uploadImageToStorage(file){
+  if(!sb) throw new Error('Supabaseクライアントが初期化されていません');
+  const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g,'') || 'jpg';
+  const path = `img_${Date.now()}_${Math.random().toString(36).slice(2,8)}.${ext}`;
+  const { error } = await sb.storage.from('screenshots').upload(path, file, { cacheControl: '3600', upsert: false });
+  if(error) throw error;
+  const { data: pub } = sb.storage.from('screenshots').getPublicUrl(path);
+  return pub.publicUrl;
 }
 
 function renderImgPreview(){
@@ -461,14 +463,20 @@ function renderImgPreview(){
 
 document.getElementById('f-images').addEventListener('change', async (e)=>{
   const files = Array.from(e.target.files);
-  for(const file of files){
-    try{
-      const dataUrl = await fileToDataUrl(file);
-      stagedImages.push(dataUrl);
-    }catch(err){ /* skip unreadable file */ }
-  }
   e.target.value = '';
-  renderImgPreview();
+  if(files.length===0) return;
+  const statusEl = document.getElementById('img-upload-status');
+  for(let i=0;i<files.length;i++){
+    statusEl.textContent = `アップロード中… (${i+1}/${files.length})`;
+    try{
+      const url = await uploadImageToStorage(files[i]);
+      stagedImages.push(url);
+      renderImgPreview();
+    }catch(err){
+      alert('画像のアップロードに失敗しました。通信状況を確認してもう一度お試しください。\n(' + (err.message || err) + ')');
+    }
+  }
+  statusEl.textContent = '';
 });
 
 function populateAccountSelect(){
